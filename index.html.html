@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Wheel Picker + QR Form</title>
+<style>
+  body { font-family: sans-serif; text-align:center; background-color: #f0f0f0; }
+  .hidden { display:none; }
+  .wheel-container { position: relative; display:inline-block; margin:20px; background-color: white; border-radius: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); padding: 10px; }
+  canvas { border-radius:50%; box-shadow: 0 0 10px rgba(0,0,0,0.2); } 
+  .pointer { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 15px solid transparent; border-right: 15px solid transparent; border-top: 30px solid black; box-shadow: 0 3px 5px rgba(0,0,0,0.3); z-index: 10; }
+  #winnerModal { display: none; position: fixed; z-index: 20; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.7); padding-top: 60px; backdrop-filter: blur(5px); }
+  .modal-content { background-color: #fefefe; margin: 5% auto; padding: 30px; border: 1px solid #888; width: 80%; max-width: 500px; border-radius: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); text-align: center; animation: fadeIn 0.5s; pointer-events: auto; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(-50px); } to { opacity: 1; transform: translateY(0); } }
+  .winner-text { font-size: 28px; color: #4CAF50; margin-bottom: 10px; font-weight: bold; }
+  .prize-text { font-size: 36px; font-weight: bold; color: #ff9800; text-shadow: 2px 2px 4px rgba(0,0,0,0.2); }
+  input, button { padding: 10px; font-size:16px; margin:5px; }
+  button { cursor:pointer; border:none; border-radius:5px; background-color:#007bff; color:white; }
+  button:hover { background-color:#0056b3; }
+</style>
+</head>
+<body>
+
+<h1>Wheel Picker + QR Form</h1>
+
+<!-- QR Form สำหรับคนอื่น -->
+<div id="qrFormDiv">
+  <h3>กรอกชื่อเพื่อเข้าร่วม (ผ่านมือถือ/QR)</h3>
+  <input id="qrNameInput" placeholder="ชื่อของคุณ" />
+  <button onclick="submitQRName()">ส่งชื่อ</button>
+</div>
+
+<!-- Wheel Picker สำหรับคุณเท่านั้น -->
+<div id="wheelDiv" class="hidden">
+  <div class="wheel-container">
+    <canvas id="wheel1" width="350" height="350"></canvas>
+    <div class="pointer"></div>
+  </div>
+  <div class="wheel-container">
+    <canvas id="wheel2" width="350" height="350"></canvas>
+    <div class="pointer"></div>
+  </div>
+
+  <div>
+    <button onclick="spinBoth()">หมุนทั้งสองวงล้อ</button>
+  </div>
+
+  <h3>เพิ่มของรางวัล (วงล้อที่สอง)</h3>
+  <input id="itemInput" placeholder="ของรางวัล" />
+  <button onclick="addItem()">เพิ่มของรางวัล</button>
+</div>
+
+<div id="winnerModal" onclick="this.style.display='none'">
+  <div class="modal-content" onclick="event.stopPropagation()">
+    <span class="close-button" onclick="document.getElementById('winnerModal').style.display='none'">&times;</span>
+    <h2>🎉 ผู้โชคดี! 🎉</h2>
+    <div class="winner-text" id="modalWinnerName"></div>
+    <p>ได้รับ</p>
+    <div class="prize-text" id="modalPrizeItem"></div>
+    <button style="margin-top: 20px; padding: 10px 20px; font-size: 18px;" onclick="document.getElementById('winnerModal').style.display='none'">ตกลง</button>
+  </div>
+</div>
+
+<script>
+let names = [];
+let items = ["รางวัลA","รางวัลB","รางวัลC"];
+let rotationId;
+
+// --- ฟังก์ชันสำหรับคนอื่นกรอกชื่อ ---
+function submitQRName() {
+  const name = document.getElementById("qrNameInput").value.trim();
+  if(!name){ alert("กรุณากรอกชื่อ"); return; }
+
+  // บันทึกชื่อใน LocalStorage (เพิ่มเข้ารายการ)
+  let stored = JSON.parse(localStorage.getItem("wheelNames")) || [];
+  stored.push(name);
+  localStorage.setItem("wheelNames", JSON.stringify(stored));
+
+  alert("ขอบคุณ! ชื่อของคุณถูกบันทึกแล้ว 🎉");
+  document.getElementById("qrNameInput").value="";
+}
+
+// --- ฟังก์ชันสำหรับคุณ (Wheel Picker) ---
+function loadNamesForWheel() {
+  // โหลดชื่อทั้งหมดจาก LocalStorage
+  const stored = JSON.parse(localStorage.getItem("wheelNames")) || [];
+  names = stored.length ? stored : ["ตัวอย่าง1"];
+  drawWheel("wheel1", names);
+  drawWheel("wheel2", items);
+  rotationId = requestAnimationFrame(smoothRotation);
+}
+
+// วาดวงล้อ
+function drawWheel(canvasId, data) {
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext("2d");
+  const cx = canvas.width/2;
+  const cy = canvas.height/2;
+  const radius = 150;
+  const slice = (2*Math.PI)/(data.length || 0.00001);
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  data.forEach((text,i)=>{
+    const start = i*slice;
+    const end = start+slice;
+    ctx.beginPath();
+    ctx.moveTo(cx,cy);
+    ctx.arc(cx,cy,radius,start,end);
+    ctx.fillStyle = `hsl(${i*50},80%,70%)`;
+    ctx.fill();
+    ctx.stroke();
+    ctx.save();
+    ctx.translate(cx,cy);
+    ctx.rotate(start+slice/2);
+    ctx.textAlign="right";
+    ctx.fillStyle="#000";
+    ctx.font="16px sans-serif";
+    ctx.fillText(text,radius-10,5);
+    ctx.restore();
+  });
+}
+
+function smoothRotation(){
+  const now = Date.now();
+  document.getElementById('wheel1').style.transform = `rotate(${(now/200)%360}deg)`;
+  document.getElementById('wheel2').style.transform = `rotate(${(now/220)%360}deg)`;
+  rotationId = requestAnimationFrame(smoothRotation);
+}
+
+function addItem(){
+  let n = document.getElementById("itemInput").value.trim();
+  if(!n) return;
+  items.push(n);
+  drawWheel("wheel2", items);
+  document.getElementById("itemInput").value="";
+}
+
+function spinBoth(){
+  if(names.length===0||items.length===0){ alert("กรุณาเพิ่มชื่อและของรางวัลก่อนหมุนวงล้อ"); return; }
+  cancelAnimationFrame(rotationId);
+  document.getElementById('wheel1').style.transform='';
+  document.getElementById('wheel2').style.transform='';
+
+  let winner1 = names[Math.floor(Math.random()*names.length)];
+  let winner2 = items[Math.floor(Math.random()*items.length)];
+  document.getElementById('modalWinnerName').innerText = winner1;
+  document.getElementById('modalPrizeItem').innerText = winner2;
+  document.getElementById('winnerModal').style.display='block';
+  rotationId = requestAnimationFrame(smoothRotation);
+}
+
+// --- เริ่มต้นเมื่อคุณเปิดเว็บ (Wheel Picker) ---
+function initWheelPicker() {
+  document.getElementById("qrFormDiv").classList.add("hidden");
+  document.getElementById("wheelDiv").classList.remove("hidden");
+  loadNamesForWheel();
+}
+
+// --- เรียก initWheelPicker() เฉพาะคุณเท่านั้น ---
+// คุณสามารถเปิด URL แบบพิเศษ เช่น https://yourdomain.com?admin=1
+const params = new URLSearchParams(window.location.search);
+if(params.get("admin")==="1"){
+  initWheelPicker();
+}
+</script>
+
+</body>
+</html>
